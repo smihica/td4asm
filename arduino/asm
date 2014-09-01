@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+
+var fs = require('fs');
+
+function zerofill4(x) {
+  var pad = '0000';
+  return (pad+x).slice(-(pad.length));
+}
+
+function to_b(s) {
+  return zerofill4(parseInt(s).toString(2));
+}
+
+function str_to_oplist(str) {
+  var rt = str.split('\n').map(function(s){
+    var op = s.match(/^([^;]*)/)[1];
+    op = op.trim();
+    op = op.split(/\s+/g).join(' ');
+    switch (op) {
+    case "":        return '';
+    case "MOV A B": return '00010000';
+    case "MOV B A": return '01000000';
+    case "IN A":    return '00100000';
+    case "IN B":    return '01100000';
+    case "OUT B":   return '10010000';
+    case "NOP":     return '00000000';
+    default:
+      var opl = op.split(/\s+/g);
+      if (opl[0] === 'JMP') return '1111' + to_b(opl[1]);
+      if (opl[0] === 'JNC') return '1110' + to_b(opl[1]);
+      if (opl[0] === 'OUT') return '1011' + to_b(opl[1]);
+      if (opl[0] === 'ADD' && opl[1] === 'A') return '0000' + to_b(opl[2]);
+      if (opl[0] === 'ADD' && opl[1] === 'B') return '0101' + to_b(opl[2]);
+      if (opl[0] === 'MOV' && opl[1] === 'A') return '0011' + to_b(opl[2]);
+      if (opl[0] === 'MOV' && opl[1] === 'B') return '0111' + to_b(opl[2]);
+    }
+    throw new Error("Can't compile '" + op + "'");
+  });
+  for (var i = rt.length; -1 < i; i--) {
+    if (rt[i] === '') rt.splice(i, 1);
+  }
+  return rt;
+}
+
+var lg = console.log;
+
+function do_file(f) {
+  fs.readFile(f, 'utf8', function(err, data) {
+    var l = str_to_oplist(data);
+    lg('byte code[16] = {');
+    for (var i = 0, len = l.length; i<16; i++) {
+      if (i<len) lg('    B' + l[i] + ',');
+      else       lg('    B00000000,');
+    }
+    lg('};');
+    lg('');
+    lg('void setup()');
+    lg('{');
+    lg('    DDRD = DDRD | B11000000; // pin0-5 input pin6,7 output');
+    lg('    DDRB = DDRB | B00111111; // pin8-13 output');
+    lg('}');
+    lg('');
+    lg('byte idx_tmp = 0;');
+    lg('void loop()');
+    lg('{');
+    lg('    byte idx = (PIND & B00111100) >> 2;; // read pins 2,3,4,5');
+    lg('    if (idx_tmp != idx) {');
+    lg('        idx_tmp = idx;')
+    lg('        byte op = code[idx];');
+    lg('        PORTD = op << 6;');
+    lg('        PORTB = op >> 2;');
+    lg('    }');
+    lg('}');
+  });
+}
+
+function main() {
+  var argv = process.argv.slice(2);
+  do_file(argv[0]);
+}
+
+main();
